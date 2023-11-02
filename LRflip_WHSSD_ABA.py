@@ -1,7 +1,7 @@
 """
 Left-right flip for point clouds represented as WHS SD rat
 and ABA mouse coordinate triplets in MeshView JSON format
-and anchoring data in QuickNII XML
+and anchoring vectors in QuickNII JSON or XML format.
 
 """
 
@@ -12,8 +12,20 @@ import re
 rat = False
 
 
-def parse_xml_anchors(line):
-    # Parse anchor lines from QuickNII XML
+def flip_json_anchors(coords):
+
+    flipped = []
+
+    for i in range(0, len(coords)-3+1, 3):
+        triplet = coords[i:i+3]
+        x_flipped = 488 - triplet[0] if rat else 456 - triplet[0]
+        flipped.extend([x_flipped, triplet[1], triplet[2]])
+
+    return(flipped)
+
+
+def flip_xml_anchors(line):
+    # Parse and LR flip anchoring vectors from QuickNII XML
 
     beginning, ending = line.split("anchoring='") 
     snippets = re.split("=|&", ending)
@@ -30,14 +42,14 @@ def parse_xml_anchors(line):
     ux = - ux
     vx = - vx
 
-    new = beginning + "anchoring='" + snippets[0] + '=' + str(ox) + '&' + snippets[2] + '=' + str(oy) + '&' + snippets[4] + '=' + str(oz) + '&' + snippets[6] + '=' + str(ux) + '&' + snippets[8] + '=' + str(uy) + '&' + snippets[10] + '=' + str(uz) + '&' + snippets[12] + '=' + str(vx) + '&' + snippets[14] + '=' + snippets[15] + '&' + snippets[16] + '=' + snippets[17]
+    flipped = beginning + "anchoring='" + snippets[0] + '=' + str(ox) + '&' + snippets[2] + '=' + str(oy) + '&' + snippets[4] + '=' + str(oz) + '&' + snippets[6] + '=' + str(ux) + '&' + snippets[8] + '=' + str(uy) + '&' + snippets[10] + '=' + str(uz) + '&' + snippets[12] + '=' + str(vx) + '&' + snippets[14] + '=' + snippets[15] + '&' + snippets[16] + '=' + snippets[17]
 
-    return(new)
+    return(flipped)
 
 
 if __name__=='__main__':
 
-    print('\nLeft-right flip for point clouds represented as WHS SD rat or ABA mouse coordinate triplets in MeshView JSON or QuickNII XML format\n---')
+    print('\nLeft-right flip for point clouds represented as WHS SD rat or ABA mouse coordinate triplets in MeshView JSON, QuickNII JSON, or QuickNII XML format\n---')
     print('This script looks for JSON and XML files in a folder and all of its subfolders and processes them either as rat or mouse.\nYou need to pre-select the species and all files in the selected folder will be processed accordingly. Therefore if you\nhave mixed data, please place them in separate folders (one for mouse and one for rat) and run the script separately for each.\n---')
 
     folder = input('Path to folder with JSON and/or XML files: ')
@@ -64,22 +76,44 @@ if __name__=='__main__':
             if fname.endswith('.json') and not '_LRflipped' in fname:
                 fname = os.path.join(root, fname)
                 print(' - Processing ' + fname + '...', end=' ', flush=False)
-                jlist = json.load(open(fname,'r'))
+                content = json.load(open(fname,'r'))
+                
+                if type(content) == list:
 
-                newcontent = []
-                for jdict in jlist:              
-                    coords = jdict['triplets']
-                    flipped = []
+                    newcontent = []
+                    for jdict in content:
+                        if 'triplets' in jdict.keys():            # MeshView JSON
+                            coords = jdict['triplets']
+                            flipped = flip_json_anchors(coords)
+                            jdict.update({'triplets':flipped})
+                            newcontent.append(jdict)
 
-                    for i in range(0, len(coords)-3+1, 3):
-                        triplet = coords[i:i+3]
-                        x_flipped = 488 - triplet[0] if rat else 456 - triplet[0]
-                        flipped.extend([x_flipped, triplet[1], triplet[2]])
+                        else:
+                            print('Unsupported JSON format')
+                            break
 
-                    jdict.update({'triplets':flipped})
-                    newcontent.append(jdict)
+                elif type(content) == dict:
 
-                json.dump(newcontent,open(fname[:-5] + '_LRflipped.json', 'w'),indent=4)
+                    newcontent = {}
+                    if 'slices' in content.keys():                # QuickNII JSON
+                        newslices = []
+                        for s in content['slices']:
+                            coords = s['anchoring']
+                            flipped = flip_json_anchors(coords)
+                            s.update({'anchoring':flipped})
+                            newslices.append(s)
+                        content.update({'slices':newslices})
+                        newcontent = content
+
+                    else:
+                        print('Unsupported JSON format')
+                        break
+                                          
+                else:
+                    print('Unsupported JSON format')
+                    continue
+
+                json.dump(newcontent, open(fname[:-5] + '_LRflipped.json', 'w'), indent=4)
                 print('Done.')
 
             elif fname.endswith('.xml') and not '_LRflipped' in fname:
@@ -90,7 +124,7 @@ if __name__=='__main__':
                 with open(fname, 'r') as xmlf:
                     for line in xmlf:
                         if line.strip().startswith('<slice filename='):
-                            new = parse_xml_anchors(line)
+                            new = flip_xml_anchors(line)
                             lines.append(new)                
                         else:
                             lines.append(line)
